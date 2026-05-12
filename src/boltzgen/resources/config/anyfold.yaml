@@ -1,0 +1,23 @@
+# Simple AnyFold integration config for BoltzGen
+_target_: boltzgen.task.predict.anyfold_predict.AnyFoldPredict
+
+# Just override the essentials - let AnyFold use its defaults
+input: "intermediate_designs_inverse_folded"
+output: "anyfold_folded"
+msa_dir: ""
+assert_msa: false
+diffusion_samples: 1
+diffusion_steps: 50
+num_seeds: 1
+skip_existing: true
+
+# Use AnyFold defaults for everything else
+model_weights: /data/cb/scratch/share/anyfold_contact.ckpt
+model_config: ../anyfold_dev/anyfold/model/config.yaml
+
+# Trainer - keep simple
+trainer:
+  accelerator: gpu
+  devices: 1
+  logger: false
+  precision: bf16-mixed

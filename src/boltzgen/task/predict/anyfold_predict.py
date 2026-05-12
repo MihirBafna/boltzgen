@@ -1,0 +1,208 @@
+"""
+AnyFold integration for BoltzGen
+Simple, direct usage of AnyFold's CofoldingTask
+"""
+
+import os
+import json
+import tempfile
+from pathlib import Path
+from omegaconf import OmegaConf
+
+from boltzgen.task.task import Task
+
+# AnyFold imports
+try:
+    from anyfold.inference.cofolding import CofoldingTask
+    ANYFOLD_AVAILABLE = True
+except ImportError:
+    ANYFOLD_AVAILABLE = False
+    print("Warning: AnyFold not available. Install anyfold_dev to use this feature.")
+
+
+class AnyFoldPredict(Task):
+    """BoltzGen task that uses AnyFold for structure prediction"""
+
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.config = kwargs
+
+        if not ANYFOLD_AVAILABLE:
+            raise ImportError("AnyFold is not available")
+
+    def run(self, config):
+        """Run AnyFold prediction on BoltzGen structures"""
+
+        # Read BoltzGen intermediate structures
+        input_dir = config.get("input", "intermediate_designs_inverse_folded")
+        output_dir = config.get("output", "anyfold_folded")
+
+        # Make output_dir absolute path for AnyFold
+        if not os.path.isabs(output_dir):
+            output_dir = os.path.abspath(output_dir)
+
+        # Create output directory
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # Load designed sequences and targets
+        designed_structures = self._load_boltzgen_structures(input_dir)
+        target_sequences = self._load_target_sequences()
+
+        # Create JSON files for AnyFold
+        temp_dir = tempfile.mkdtemp(prefix="boltzgen_anyfold_")
+
+        try:
+            # Create cofolding JSON files
+            for structure_data in designed_structures:
+                structure_id = structure_data.get('id', 'structure')
+                target_id = structure_data.get('target_id', '')
+
+                # Create AnyFold JSON structure
+                anyfold_structure = {
+                    "A": {
+                        "type": "protein",
+                        "sequence": target_sequences.get(target_id, "")
+                    },
+                    "B": {
+                        "type": "protein",
+                        "sequence": structure_data['sequence']
+                    }
+                }
+
+                json_path = os.path.join(temp_dir, f"{structure_id}_complex.json")
+                with open(json_path, 'w') as f:
+                    json.dump(anyfold_structure, f, indent=2)
+
+                print(f"Created: {structure_id}_complex.json")
+
+            # Create AnyFold config (matching cofolding.yaml structure)
+            anyfold_config = OmegaConf.create({
+                "input": temp_dir,
+                "msa_dir": "",  # Can be empty since assert_msa=False
+                "output": output_dir,
+                "recycling_steps": 4,
+                "diffusion_samples": 1,
+                "diffusion_steps": 20,
+                "num_seeds": 1,
+                "skip_existing": True,
+                "assert_msa": False,
+                "save_traj": False,
+                "save_distogram": False,
+                "save_full_confidence": False,
+                "diffusion": {
+                    "sigma_min": 0.0004,
+                    "sigma_max": 160.0,
+                    "sigma_data": 16.0,
+                    "edm_churn": True,
+                    "rho": 7,
+                    "gamma_0": 0.8,
+                    "gamma_min": 1.0,
+                    "noise_scale": 1.003,
+                    "step_scale": 1.5,
+                }
+            })
+
+            # Run AnyFold directly (following anyfold/__main__.py pattern)
+            print("Running AnyFold cofolding...")
+
+            # Load model config
+            import pytorch_lightning as pl
+            from anyfold.model.model import AnyFoldModel
+            from anyfold.utils.load_weights import load_weights
+            from anyfold.data.utils import collate
+            from torch.utils.data import DataLoader
+
+            model_config_path = "/data/cb/mihirb14/projects/anyfold_dev/anyfold/model/config.yaml"
+            model_cfg = OmegaConf.load(model_config_path)
+
+            # Create model and load weights
+            model = AnyFoldModel(model_cfg)
+            load_weights("/data/cb/scratch/share/anyfold_contact.ckpt", model)
+
+            # Create task and run
+            task = CofoldingTask(anyfold_config)
+            model.inference_task = task
+
+            # Create trainer and run
+            trainer = pl.Trainer(
+                accelerator="gpu",
+                devices=1,
+                logger=False,
+                enable_progress_bar=True
+            )
+
+            loader = DataLoader(task, batch_size=1, collate_fn=collate, num_workers=1)
+            trainer.predict(model, loader)
+
+            print("AnyFold completed!")
+
+        finally:
+            # Cleanup temp files
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _load_boltzgen_structures(self, input_dir: str):
+        """Load BoltzGen designed structures"""
+        import pickle
+        import gzip
+
+        structures = []
+        seq_coords_file = os.path.join(input_dir, "ca_coords_sequences.pkl.gz")
+
+        if os.path.exists(seq_coords_file):
+            with gzip.open(seq_coords_file, 'rb') as f:
+                df = pickle.load(f)
+
+            for _, row in df.iterrows():
+                structures.append({
+                    'id': row['id'],
+                    'target_id': row.get('target_id', ''),
+                    'sequence': row['sequence']
+                })
+
+        return structures
+
+    def _load_target_sequences(self):
+        """Load target protein sequences"""
+        target_sequences = {}
+
+        # Look for PDB files in targets directories
+        for targets_dir in [Path("targets"), Path("../targets")]:
+            if targets_dir.exists():
+                for pdb_file in targets_dir.glob("*.pdb"):
+                    target_name = pdb_file.stem
+                    sequence = self._extract_sequence_from_pdb(pdb_file)
+                    if sequence:
+                        target_sequences[target_name] = sequence
+
+        print(f"Loaded target sequences: {list(target_sequences.keys())}")
+        return target_sequences
+
+    def _extract_sequence_from_pdb(self, pdb_path):
+        """Extract amino acid sequence from PDB file"""
+        aa_3to1 = {
+            'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E', 'PHE': 'F',
+            'GLY': 'G', 'HIS': 'H', 'ILE': 'I', 'LYS': 'K', 'LEU': 'L',
+            'MET': 'M', 'ASN': 'N', 'PRO': 'P', 'GLN': 'Q', 'ARG': 'R',
+            'SER': 'S', 'THR': 'T', 'VAL': 'V', 'TRP': 'W', 'TYR': 'Y'
+        }
+
+        sequence = ""
+        prev_res_num = None
+
+        try:
+            with open(pdb_path, 'r') as f:
+                for line in f:
+                    if line.startswith('ATOM') and line[12:16].strip() == 'CA':
+                        res_name = line[17:20].strip()
+                        res_num = int(line[22:26].strip())
+
+                        if res_num != prev_res_num:
+                            if res_name in aa_3to1:
+                                sequence += aa_3to1[res_name]
+                            prev_res_num = res_num
+        except Exception as e:
+            print(f"Warning: Could not extract sequence from {pdb_path}: {e}")
+            return ""
+
+        return sequence
