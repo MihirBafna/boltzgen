@@ -71,6 +71,7 @@ step_names = [
     "inverse_folding",
     "design_folding",
     "folding",
+    "anyfold_folding",
     "affinity",
     "analysis",
     "filtering",
@@ -1121,6 +1122,21 @@ class BinderDesignPipeline:
                     f"data.cfg.moldir={moldir}",
                 ]
                 + config_args_by_step["folding"],
+            )
+        )
+
+        # AnyFold folding
+        self.steps.append(
+            PipelineStep(
+                name="anyfold_folding",
+                config_path=args.config_dir / "anyfold.yaml",
+                args=[
+                    f"output_dir={output_dir}/anyfold_folded",
+                    f"input_dir={input_dir}",
+                    f"trainer.devices={devices}",
+                    f"skip_existing={args.reuse}",
+                ]
+                + config_args_by_step["anyfold_folding"],
             )
         )
 
