@@ -35,11 +35,18 @@ class AnyFoldPredict(Task):
 
         # Read BoltzGen intermediate structures
         input_dir = config.get("input", "intermediate_designs_inverse_folded")
-        output_dir = config.get("output", "anyfold_folded")
+
+        # Use BoltzGen's output_dir if available, otherwise fall back to output or default
+        if 'output_dir' in config:
+            output_dir = config['output_dir']
+        else:
+            output_dir = config.get("output", "anyfold_folded")
 
         # Make output_dir absolute path for AnyFold
         if not os.path.isabs(output_dir):
             output_dir = os.path.abspath(output_dir)
+
+        print(f"AnyFold output directory: {output_dir}")
 
         # Create output directory
         Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -76,16 +83,17 @@ class AnyFoldPredict(Task):
                 print(f"Created: {structure_id}_complex.json")
 
             # Create AnyFold config (matching cofolding.yaml structure)
+            # AnyFold should automatically pick up TINYPROT_CACHE, so leave msa_dir empty
             anyfold_config = OmegaConf.create({
                 "input": temp_dir,
-                "msa_dir": "",  # Can be empty since assert_msa=False
-                "output": output_dir,
+                "msa_dir": "",  # Let AnyFold/tinyprot handle MSA path automatically
+                "output": output_dir,  # Already made absolute above
                 "recycling_steps": 4,
                 "diffusion_samples": 1,
-                "diffusion_steps": 20,
+                "diffusion_steps": 200,  # Match anybind
                 "num_seeds": 1,
                 "skip_existing": True,
-                "assert_msa": False,
+                "assert_msa": False,  # Keep false to make MSAs optional
                 "save_traj": False,
                 "save_distogram": False,
                 "save_full_confidence": False,
@@ -98,7 +106,7 @@ class AnyFoldPredict(Task):
                     "gamma_0": 0.8,
                     "gamma_min": 1.0,
                     "noise_scale": 1.003,
-                    "step_scale": 1.5,
+                    "step_scale": 1.0,  # Match anybind
                 }
             })
 
