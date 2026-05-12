@@ -1,0 +1,12 @@
+entities:
+  # Design a protein binder with 80-140 residues
+  - protein:
+      id: B
+      sequence: 80..140
+
+  # PDL1 target from PDB structure
+  - file:
+      path: ../targets/PDL1.pdb
+      include:
+        - chain:
+            id: A

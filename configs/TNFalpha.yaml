@@ -1,0 +1,29 @@
+# TNFalpha (Tumor necrosis factor alpha) binder design config
+# PDB: 1tnf, Chains A/B/C, residues 12-157
+# Hotspot residues: A113, C73
+
+entities:
+  # Design a protein binder with 40-120 residues (per catalog)
+  - protein:
+      id: D
+      sequence: 40..120
+
+  # TNFalpha target from PDB 1tnf (trimer - using chains A and C with hotspots)
+  - file:
+      path: ../targets/1tnf.pdb
+      include:
+        - chain:
+            id: A
+            res_index: 12..157
+        - chain:
+            id: C
+            res_index: 12..157
+
+      # Specify hotspot binding residues
+      binding_types:
+        - chain:
+            id: A
+            binding: 113
+        - chain:
+            id: C
+            binding: 73

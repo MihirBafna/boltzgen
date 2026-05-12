@@ -1,0 +1,23 @@
+# InsulinR (Insulin receptor) binder design config
+# PDB: 4zxb, Chain E, residues 6-155
+# Hotspot residues: E64, E88, E96
+
+entities:
+  # Design a protein binder with 40-120 residues (per catalog)
+  - protein:
+      id: C
+      sequence: 40..120
+
+  # InsulinR target from PDB 4zxb
+  - file:
+      path: ../targets/4zxb.pdb
+      include:
+        - chain:
+            id: E
+            res_index: 6..155
+
+      # Specify hotspot binding residues
+      binding_types:
+        - chain:
+            id: E
+            binding: 64,88,96

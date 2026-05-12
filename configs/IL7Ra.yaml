@@ -1,0 +1,23 @@
+# IL7Ra (Interleukin-7 receptor alpha) binder design config
+# PDB: 3di3, Chain B, residues 17-209
+# Hotspot residues: B58, B80, B139
+
+entities:
+  # Design a protein binder with 40-120 residues (per catalog)
+  - protein:
+      id: C
+      sequence: 40..120
+
+  # IL7Ra target from PDB 3di3
+  - file:
+      path: ../targets/3di3.pdb
+      include:
+        - chain:
+            id: B
+            res_index: 17..209
+
+      # Specify hotspot binding residues
+      binding_types:
+        - chain:
+            id: B
+            binding: 58,80,139

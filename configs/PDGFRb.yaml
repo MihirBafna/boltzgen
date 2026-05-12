@@ -1,0 +1,23 @@
+# PDGFRb (Platelet-derived growth factor receptor beta) binder design config
+# PDB: 3mjg, Chain C, residues 93-280
+# Hotspot residues: C265, C264, C210
+
+entities:
+  # Design a protein binder with 50-120 residues (per catalog)
+  - protein:
+      id: D
+      sequence: 50..120
+
+  # PDGFRb target from PDB 3mjg
+  - file:
+      path: ../targets/3mjg.pdb
+      include:
+        - chain:
+            id: X
+            res_index: 93..280
+
+      # Specify hotspot binding residues
+      binding_types:
+        - chain:
+            id: X
+            binding: 210,264,265
