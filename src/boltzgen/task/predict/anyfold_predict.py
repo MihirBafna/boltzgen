@@ -33,8 +33,8 @@ class AnyFoldPredict(Task):
     def run(self, config):
         """Run AnyFold prediction on BoltzGen structures"""
 
-        # Read BoltzGen intermediate structures
-        input_dir = config.get("input", "intermediate_designs_inverse_folded")
+        # Read BoltzGen intermediate structures - use input_dir (full path) not input (relative path)
+        input_dir = config.get("input_dir", config.get("input", "intermediate_designs_inverse_folded"))
 
         # Use BoltzGen's output_dir if available, otherwise fall back to output or default
         if 'output_dir' in config:
@@ -150,24 +150,28 @@ class AnyFoldPredict(Task):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _load_boltzgen_structures(self, input_dir: str):
-        """Load BoltzGen designed structures"""
-        import pickle
-        import gzip
-
+        """Load BoltzGen designed structures from CIF files"""
         structures = []
-        seq_coords_file = os.path.join(input_dir, "ca_coords_sequences.pkl.gz")
 
-        if os.path.exists(seq_coords_file):
-            with gzip.open(seq_coords_file, 'rb') as f:
-                df = pickle.load(f)
+        # Look for CIF files in the input directory
+        import glob
+        cif_files = glob.glob(os.path.join(input_dir, "*.cif"))
 
-            for _, row in df.iterrows():
-                structures.append({
-                    'id': row['id'],
-                    'target_id': row.get('target_id', ''),
-                    'sequence': row['sequence']
-                })
+        for cif_file in cif_files:
+            structure_id = os.path.splitext(os.path.basename(cif_file))[0]
+            sequences = self._extract_sequences_from_cif(cif_file)
 
+            if sequences:
+                # The designed binder should be chain B (entity 1), target is chain A (entity 2)
+                binder_sequence = sequences.get('1', '')  # Entity 1 = designed binder
+                if binder_sequence:
+                    structures.append({
+                        'id': structure_id,
+                        'target_id': structure_id,  # Use the same ID for target lookup
+                        'sequence': binder_sequence
+                    })
+
+        print(f"Loaded {len(structures)} structures from CIF files")
         return structures
 
     def _load_target_sequences(self):
@@ -214,3 +218,45 @@ class AnyFoldPredict(Task):
             return ""
 
         return sequence
+
+    def _extract_sequences_from_cif(self, cif_path):
+        """Extract sequences from CIF file"""
+        sequences = {}
+
+        try:
+            with open(cif_path, 'r') as f:
+                content = f.read()
+
+            # Parse the entity_poly section for sequences
+            lines = content.split('\n')
+            in_entity_poly_loop = False
+
+            for i, line in enumerate(lines):
+                line = line.strip()
+
+                # Look for the start of entity_poly loop
+                if line == 'loop_' and i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if next_line == '_entity_poly.entity_id':
+                        in_entity_poly_loop = True
+                        continue
+
+                # Process data lines in the entity_poly loop
+                if in_entity_poly_loop:
+                    if line.startswith('_entity_poly.'):
+                        continue  # Skip header lines
+                    elif line.startswith('loop_') or line.startswith('#') or not line:
+                        in_entity_poly_loop = False  # End of this loop
+                        break
+                    else:
+                        # This is a data line: entity_id type strand_id sequence
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            entity_id = parts[0]
+                            sequence = parts[3]  # pdbx_seq_one_letter_code
+                            sequences[entity_id] = sequence
+
+        except Exception as e:
+            print(f"Warning: Could not extract sequences from {cif_path}: {e}")
+
+        return sequences
